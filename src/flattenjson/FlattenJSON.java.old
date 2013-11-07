@@ -1,0 +1,161 @@
+/*
+ * To change this template, choose Tools | Templates
+ * and open the template in the editor.
+ */
+package flattenjson;
+
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.io.FileInputStream;
+import java.io.FileReader;
+import java.util.ArrayDeque; //it's a stack
+import java.util.Iterator;
+import java.util.Enumeration;
+import java.util.Hashtable;
+
+import com.google.gson.*;
+import com.google.gson.stream.*;
+
+/**
+ *
+ * @author richard
+ */
+public class FlattenJSON {
+  //Hold a last in first out stack of json names parsed so far - necessary for maintaining structure of recursive object/array blocks
+  protected ArrayDeque<String> nameStack = new ArrayDeque<String>();
+  
+  //Hold name of all columns found and a boolean for making the data to check when the same column comes up twice (i.e. a row)
+  protected Hashtable<String,Boolean> columns = new Hashtable<String,Boolean>();
+
+  /**
+   * @param args the command line arguments
+   */
+  public static void main(String[] args) {
+    // TODO code application logic here
+    
+    FlattenJSON f = new FlattenJSON();
+    f.flattenJSON("C:\\Users\\richard\\Desktop\\storm-2728Oct2013-dp-cache\\wow_obs\\test_20131028_0759.json");
+    //f.flattenJSON("C:\\Users\\richard\\Desktop\\storm-2728Oct2013-dp-cache\\wow_obs\\wow_obs_20131028_0759.json");
+  }
+  
+  /**
+   * 
+   * @param head The head, which is a concatenation (or empty) onto which the tail is added to the end
+   * @param tail The tail, which is a simple string json element
+   * @return head::tail e.g. a::b::c::d::e  with ::f on the end
+   * null + element is just element e.g. "" + f = f, not ::f
+   */
+  protected String appendTail(String head, String tail) {
+    if ((head.length()>0)&&(tail.length()>0)) return head+"::"+tail;
+    if ((head.length()>0)) return head; //this copes with anonymous tail blocks
+    return tail;
+  }
+  
+  /**
+   * Do the actual work
+   */
+  public void flattenJSON(String filename) {
+    try {
+      //BufferedReader br = new BufferedReader(new FileReader(filename));
+      //JsonReader reader = new JsonReader(new InputStreamReader(in, "UTF-8"));
+      
+      //first pass, get the columns
+      columns = new Hashtable<String,Boolean>();
+      JsonReader reader = new JsonReader(new FileReader(filename));
+      reader.setLenient(true);
+      flatten(reader,"",true);
+      reader.close();
+      
+      //print out the columns here
+      Enumeration<String> keys = columns.keys();
+      while (keys.hasMoreElements()) {
+        String colName = keys.nextElement();
+        System.out.println("column "+colName);
+      }
+      
+      //second pass, write out data
+      //reader = new JsonReader(new FileReader(filename));
+      //reader.setLenient(true);
+      //flatten(reader,"",false);
+      //reader.close();
+    }
+    catch (Exception ex) {
+      ex.printStackTrace();
+    }
+    System.out.println("Finished.");
+  }
+  
+  /**
+   * Recursive implementation of classic flatten pattern using a json reader to parse tokens.
+   * Called as a two-pass algorithm with firstPass=true, then firstPass=false. This populates
+   * the columns property so we can differentiate rows.
+   * @param reader 
+   * @param fqName Fully qualified name i.e. a::b::c
+   * @param firstPass On the first pass we're only searching for column headers, on the second pass we're filling in the data
+   */
+  protected void flatten(JsonReader reader,String fqName,boolean firstPass) {
+    String name="",str; //java doesn't keep cases in separate scopes, so define here for all of them
+    double num;
+    boolean b;
+    try {
+      while (reader.hasNext()) {
+        JsonToken tok = reader.peek();
+        switch (tok) {
+          case BEGIN_OBJECT:
+            //System.out.println("begin object");
+            reader.beginObject(); //once you enter beginObject, it only reads to the end of this
+            nameStack.push(fqName);
+            flatten(reader,appendTail(fqName,name),firstPass);
+            fqName = nameStack.pop();
+            reader.endObject();
+            break;
+          case END_OBJECT: //this never gets called!
+            //System.out.println("end object");
+            break;
+          case BEGIN_ARRAY:
+            //System.out.println("begin array");
+            reader.beginArray(); //once you enter beginArray, it only reads to the end of this
+            nameStack.push(fqName);
+            flatten(reader,appendTail(fqName,name),firstPass);
+            fqName=nameStack.pop();
+            reader.endArray();
+            break;
+          case END_ARRAY: //this never gets called!
+            //System.out.println("end array");
+            break;
+          case NAME:
+            name = reader.nextName();
+            //System.out.println("name="+name);
+            if (firstPass) { //on the first pass we collect up the column names for later
+              columns.put(appendTail(fqName,name),true);
+            }
+            break;
+          case STRING:
+            str = reader.nextString();
+            //name = this.getFullyQualifiedName();
+            System.out.println(appendTail(fqName,name)+"="+str);
+            break;
+          case NUMBER:
+            //there is no way of knowing the type, so you have to decide yourself beforehand
+            num = reader.nextDouble();
+            System.out.println(appendTail(fqName,name)+"="+num);
+            break;
+          case BOOLEAN:
+            b = reader.nextBoolean();
+            System.out.println(appendTail(fqName,name)+"="+b);
+            break;
+          case NULL:
+            reader.nextNull();
+            System.out.println(appendTail(fqName,name)+"=null");
+            break;
+          case END_DOCUMENT:
+            return;
+        }
+      }
+    }
+    catch (Exception ex) {
+      ex.printStackTrace();
+    }
+  }
+  
+}
